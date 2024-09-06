@@ -1,4 +1,8 @@
-use alloy::primitives::{Address, hex};
+use std::error::Error;
+use std::str::FromStr;
+use alloy::primitives::{hex, Address};
+use alloy::providers::{Provider, ProviderBuilder};
+use alloy::primitives::utils::format_ether;
 use k256::ecdsa::{SigningKey, VerifyingKey};
 use k256::elliptic_curve::rand_core::OsRng;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
@@ -15,17 +19,23 @@ struct Cli {
 #[derive(StructOpt, Debug)]
 enum Command {
     CreateWallet,
+    Balance { address: String },
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn Error>> {
     let args = Cli::from_args();
 
     match args.command {
         Command::CreateWallet => {
             create_wallet();
         }
+        Command::Balance { address } => {
+            get_balance(address).await?;
+        }
     }
+
+    Ok(())
 }
 
 // Function to generate an Ethereum wallet keypair
@@ -47,8 +57,28 @@ fn create_wallet() {
     let address_bytes = &result[12..]; // Ethereum address is the last 20 bytes    
 
     // Convert the address to alloy's Address type
-    let address = Address::from_slice(address_bytes);
+    let address: Address = Address::from_slice(address_bytes);
 
     println!("Your new wallet address: {}", address);
     println!("Your private key (keep it safe!): {}", hex::encode(signing_key.to_bytes()));
+}
+
+async fn get_balance(address: String) -> Result<(), Box<dyn Error>> {
+    // Set up the HTTP transport which is consumed by the RPC client.
+    let rpc_url = "https://eth.merkle.io".parse()?;
+
+    // Create a provider with the HTTP transport using the `reqwest` crate.
+    let provider = ProviderBuilder::new().on_http(rpc_url);
+
+    // Create an Address instance from the address String
+    let address = Address::from_str(&address)?;
+
+    // Fetch the current balance of the address in wei and convert it to ether
+    let balance_in_wei = provider.get_balance(address).await?;
+    let balance_in_ether = format_ether(balance_in_wei);
+
+    // Print the results
+    println!("Balance for address {} is {} ETH", address, balance_in_ether);
+
+    Ok(())
 }
